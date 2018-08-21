@@ -1,36 +1,29 @@
-## YOLO_tensorflow
+## Object Detection by YOLO
 
 Tensorflow implementation of [YOLO](https://arxiv.org/pdf/1506.02640.pdf), including training and test phase.
+This implementation of YOLO are simple refactoring of [Peng Zhang's works](https://github.com/hizhangp/yolo_tensorflow) for lab.
 
-### Installation
+### Test Phase
 
-1. Clone yolo_tensorflow repository
-	```Shell
-	$ git clone https://github.com/hizhangp/yolo_tensorflow.git
-    $ cd yolo_tensorflow
-	```
-
-2. Download Pascal VOC dataset, and create correct directories
-	```Shell
-	$ ./download_data.sh
-	```
-
-3. Download [YOLO_small](https://drive.google.com/file/d/0B5aC8pI-akZUNVFZMmhmcVRpbTA/view?usp=sharing)
+1. Download [YOLO_small](https://drive.google.com/file/d/1ZRFgjtfFPVxn_nqWrs4Fq3ARNkjTDbHa/view?usp=sharing)
 weight file and put it in `data/weights`
 
-4. Modify configuration in `yolo/config.py`
-
-5. Training
-	```Shell
-	$ python train.py
-	```
-
-6. Test
+2. Run `test.py`
 	```Shell
 	$ python test.py
 	```
 
-### Requirements
-1. Tensorflow
+### Training Phase
 
-2. OpenCV
+1. Download [Pascal VOC dataset](http://host.robots.ox.ac.uk/pascal/VOC/voc2007/VOCtrainval_06-Nov-2007.tar) and extract it to `data/pascal_voc` director for training.
+
+2. Run `train.py`
+	```Shell
+	$ python train.py
+	```
+
+### Requirements
+- tensorflow
+- numpy
+- matplotlib
+- opencv-python
