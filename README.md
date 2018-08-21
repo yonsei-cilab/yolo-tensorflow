@@ -1,6 +1,7 @@
 ## Object Detection by YOLO
 
 Tensorflow implementation of [YOLO](https://arxiv.org/pdf/1506.02640.pdf), including training and test phase.
+
 This implementation of YOLO are simple refactoring of [Peng Zhang's works](https://github.com/hizhangp/yolo_tensorflow) for lab.
 
 ### Test Phase
@@ -10,7 +11,7 @@ weight file and put it in `data/weights`
 
 2. Run `test.py`
 	```Shell
-	$ python test.py
+	$ python3 test.py
 	```
 
 ### Training Phase
@@ -19,7 +20,7 @@ weight file and put it in `data/weights`
 
 2. Run `train.py`
 	```Shell
-	$ python train.py
+	$ python3 train.py
 	```
 
 ### Requirements
