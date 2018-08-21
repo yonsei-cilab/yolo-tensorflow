@@ -5,6 +5,7 @@ import yolo.config as cfg
 slim = tf.contrib.slim
 
 
+
 class YOLONet(object):
 
     def __init__(self, is_training=True):
@@ -15,11 +16,11 @@ class YOLONet(object):
         self.boxes_per_cell = cfg.BOXES_PER_CELL                # B = 2   
         self.output_size = (self.cell_size * self.cell_size) *\
             (self.boxes_per_cell * 5 + self.num_class)          # 1470 = S x S x (B * 5 + C)
-        self.scale = self.image_size / self.cell_size
-        self.boundary1 = self.cell_size * self.cell_size * self.num_class
+        self.scale = self.image_size / self.cell_size           # 448/7 = 64
+        self.boundary1 = self.cell_size * self.cell_size * self.num_class    # Class probability
             # S x S x C = 980   
         self.boundary2 = self.boundary1 +\
-            self.cell_size * self.cell_size * self.boxes_per_cell
+            self.cell_size * self.cell_size * self.boxes_per_cell           # Objectiveness
             # S x S x C + S x S x B = 980 + 98 = 1078
 
         self.object_scale = cfg.OBJECT_SCALE
@@ -51,12 +52,10 @@ class YOLONet(object):
                       is_training=True,
                       scope='yolo'):
         with tf.variable_scope(scope):
-            with slim.arg_scope(
-                [slim.conv2d, slim.fully_connected],
+            with slim.arg_scope([slim.conv2d, slim.fully_connected],
                 activation_fn=leaky_relu(alpha=0.1),
                 weights_regularizer=slim.l2_regularizer(0.0005),
-                weights_initializer=tf.truncated_normal_initializer(0.0, 0.01)
-            ):
+                weights_initializer=tf.truncated_normal_initializer(0.0, 0.01)):
                 # images (?, 448, 448, 3)
                 net = tf.pad(
                     images, np.array([[0, 0], [3, 3], [3, 3], [0, 0]]),
@@ -65,22 +64,22 @@ class YOLONet(object):
                     # 454 = 3 + 448 + 3
                 net = slim.conv2d(
                     net, 64, 7, 2, padding='VALID', scope='conv_2')
-                    # (?, 224, 224, 64)
+                    # (?, 224, 224, 64) = 454-7
                     # here, 'VALID' means no padding.
                 net = slim.max_pool2d(net, 2, padding='SAME', scope='pool_3')
                     # (?, 112, 112, 64)
                     # here, 'SAME' means zero-paddings.
-                net = slim.conv2d(net, 192, 3, scope='conv_4')
+                net = slim.conv2d(net, 192, 3, padding='SAME', scope='conv_4')
                     # (?, 112, 112, 192)
                 net = slim.max_pool2d(net, 2, padding='SAME', scope='pool_5')
                     # (?, 56, 56, 192)
-                net = slim.conv2d(net, 128, 1, scope='conv_6')
+                net = slim.conv2d(net, 128, 1, padding='SAME',scope='conv_6')
                     # (?, 56, 56, 192)
-                net = slim.conv2d(net, 256, 3, scope='conv_7')
+                net = slim.conv2d(net, 256, 3, padding='SAME',scope='conv_7')
                     # (?, 56, 56, 256)
-                net = slim.conv2d(net, 256, 1, scope='conv_8')
+                net = slim.conv2d(net, 256, 1, padding='SAME',scope='conv_8')
                     # (?, 56, 56, 256)
-                net = slim.conv2d(net, 512, 3, scope='conv_9')
+                net = slim.conv2d(net, 512, 3, padding='SAME',scope='conv_9')
                     # (?, 56, 56, 512)
                 net = slim.max_pool2d(net, 2, padding='SAME', scope='pool_10')
                     # (?, 28, 28, 512)
@@ -149,28 +148,40 @@ class YOLONet(object):
             predict_classes = tf.reshape(
                 predicts[:, :self.boundary1],
                 [self.batch_size, self.cell_size, self.cell_size, self.num_class])
-                # (?, 980) => (64, 7, 7, 20)
+                # 0:boundary1-1 = Conditional Class Probablity, Pr(Class_i|Object)
+                # (?, 980) => (?, 7, 7, 20)
+
             predict_scales = tf.reshape(
                 predicts[:, self.boundary1:self.boundary2],
                 [self.batch_size, self.cell_size, self.cell_size, self.boxes_per_cell])
-                # (?, 98) => (64, 7, 7, 2)
+                # boundary1:boundary2-1 = Confidence Score, Pr(Object)
+                # (?, 98) => (? 7, 7, 2)
+
             predict_boxes_coord  = tf.reshape(
                 predicts[:, self.boundary2:],
                 [self.batch_size, self.cell_size, self.cell_size, self.boxes_per_cell, 4])
-                # (?, 392) ==> (64, 7, 7, 2, 4)
+                # boundary2: = Bbox (cx,cy,w,h)
+                # (?, 392) ==> (?, 7, 7, 2, 4)
                 
-            # response: contain objects or not
+            # response: contain objects or not in GT (labels)
             response = tf.reshape(
                 labels[..., 0],
                 [self.batch_size, self.cell_size, self.cell_size, 1])
+            # labels = <tf.Tensor 'Placeholder:0' shape=(?, 7, 7, 25) dtype=float32>
+            # labels[..., 0] = labels[:,:,:,0]
+            # increase one dimension
+
+            # boxes: bbox location in GT (labels)
             boxes = tf.reshape(
                 labels[..., 1:5],
                 [self.batch_size, self.cell_size, self.cell_size, 1, 4])
-                # (64, 7, 7, 1, 4)
+            # (?, 7, 7, 1, 4)
+
             # Bounding Box, normalized into the range [0, 1]
             boxes = tf.tile(
                 boxes, [1, 1, 1, self.boxes_per_cell, 1]) / self.image_size
-                # (64, 7, 7, 2, 4)
+            # (?, 7, 7, 2, 4)
+
             classes = labels[..., 5:]
                 # (?, 7, 7, 20)
 
@@ -178,13 +189,26 @@ class YOLONet(object):
                 [np.arange(self.cell_size)] * self.cell_size * self.boxes_per_cell),
                 (self.boxes_per_cell, self.cell_size, self.cell_size)), (1, 2, 0))
                 # (7, 7, 2)
+                # (S, S, B)
+                # offset[:, :, 0]=  offset[:,:,1]
+                #                 = array([[0, 1, 2, 3, 4, 5, 6],
+                #                         [0, 1, 2, 3, 4, 5, 6],
+                #                         [0, 1, 2, 3, 4, 5, 6],
+                #                         [0, 1, 2, 3, 4, 5, 6],
+                #                         [0, 1, 2, 3, 4, 5, 6],
+                #                         [0, 1, 2, 3, 4, 5, 6],
+                #                         [0, 1, 2, 3, 4, 5, 6]])
+
+
             offset = tf.reshape(
                 tf.constant(offset, dtype=tf.float32),
                 [1, self.cell_size, self.cell_size, self.boxes_per_cell])
-                # (1, 7, 7, 2)
+                #  Constant --> Tensor in TF (1, 7, 7, 2)
+
             offset = tf.tile(offset, [self.batch_size, 1, 1, 1])
-                # (64, 7, 7, 2)
+                # (?, 7, 7, 2)
             offset_tran = tf.transpose(offset, (0, 2, 1, 3))
+
 
             predict_boxes = tf.stack(
                 [(predict_boxes_coord[..., 0] + offset) / self.cell_size,
@@ -192,14 +216,27 @@ class YOLONet(object):
                  tf.square(predict_boxes_coord[..., 2]),
                  tf.square(predict_boxes_coord[..., 3])], axis=-1)
 
+            # predict_boxes_coord[..., 0]=predict_boxes_coord[:,:,:,0]
+            # <tf.Tensor 'loss_layer/strided_slice_10:0' shape=(45, 7, 7, 2) dtype=float32>
+
+            # predict_boxes_coord[..., 1]=predict_boxes_coord[:,:,:,1]
+            # <tf.Tensor 'loss_layer/strided_slice_11:0' shape=(45, 7, 7, 2) dtype=float32>
+
+
+
             iou_predict_truth = self.calc_iou(predict_boxes, boxes)
+            # predict_boxes = <tf.Tensor 'loss_layer/stack:0' shape=(45, 7, 7, 2, 4) dtype=float32>
+            # boxes (gt boxes) = <tf.Tensor 'loss_layer/truediv:0' shape=(45, 7, 7, 2, 4) dtype=float32>
+            # iou_predict_truth = <tf.Tensor 'loss_layer/clip_by_value:0' shape=(45, 7, 7, 2) dtype=float32>
+
 
             # calculate I_obj tensor (?, S, S, B)
             object_mask = tf.reduce_max(iou_predict_truth, axis=3, keepdims=True)
             object_mask = tf.cast(
                 (iou_predict_truth >= object_mask), tf.float32) * response
 
-            # calculate I_noobj tensor (S, S, B)
+
+            # calculate I_noobj tensor (?, S, S, B)
             noobject_mask = tf.ones_like(
                 object_mask, dtype=tf.float32) - object_mask
 
@@ -218,21 +255,22 @@ class YOLONet(object):
 
             # object_loss
             # object_delta = object_mask * (predict_scales - iou_predict_truth)
-                # the original code
+            # the original code according to the equation presented in the paper
+            # response = <tf.Tensor 'loss_layer/Reshape_3:0' shape=(45, 7, 7, 1) dtype=float32>
             object_delta = object_mask * (predict_scales - response)
-                # according to the equation presented in the paper
             object_loss = tf.reduce_mean(
                 tf.reduce_sum(tf.square(object_delta), axis=[1, 2, 3]),
                 name='object_loss') * self.object_scale
 
             # noobject_loss
             # noobject_delta = noobject_mask * predict_scales
-                # the original code
+            # the original code
             noobject_delta = noobject_mask * (predict_scales - response)
                 # according to the equation presented in the paper
             noobject_loss = tf.reduce_mean(
                 tf.reduce_sum(tf.square(noobject_delta), axis=[1, 2, 3]),
                 name='noobject_loss') * self.noobject_scale
+
 
             # class_loss
             class_delta = response * (predict_classes - classes)

@@ -9,7 +9,7 @@ PASCAL_PATH = os.path.join(DATA_PATH, 'pascal_voc')
 WEIGHTS_DIR = os.path.join(PASCAL_PATH, 'weights')
 
 WEIGHTS_FILE = None
-# WEIGHTS_FILE = os.path.join(DATA_PATH, 'weights', 'YOLO_small.ckpt')
+#WEIGHTS_FILE = os.path.join(DATA_PATH, 'weights', 'YOLO_small.ckpt')
 
 OUTPUT_DIR = os.path.join(PASCAL_PATH, 'output')
 
@@ -62,23 +62,23 @@ COORD_SCALE = 5.0
 ### train/solver parameter
 
 GPU = ''
-#LEARNING_RATE = 0.0001
-#DECAY_STEPS = 30000
-#DECAY_RATE = 0.1
-#STAIRCASE = True
-#BATCH_SIZE = 45
-#MAX_ITER = 15000
-#SUMMARY_ITER = 10
-#SAVE_ITER = 1000
-
 LEARNING_RATE = 0.0001
-DECAY_STEPS = 500
+DECAY_STEPS = 6000
 DECAY_RATE = 0.1
 STAIRCASE = True
-BATCH_SIZE = 64
-MAX_ITER = 1000
-SUMMARY_ITER = 10
-SAVE_ITER = 500
+BATCH_SIZE = 45
+MAX_ITER = 15000
+SUMMARY_ITER = 1
+SAVE_ITER = 1000
+
+# LEARNING_RATE = 0.0001
+# DECAY_STEPS = 500
+# DECAY_RATE = 0.1
+# STAIRCASE = True
+# BATCH_SIZE = 64
+# MAX_ITER = 1000
+# SUMMARY_ITER = 10
+# SAVE_ITER = 500
 
 
 ### test parameter

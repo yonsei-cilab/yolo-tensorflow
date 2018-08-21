@@ -1,8 +1,11 @@
 import os
+import cv2
 import argparse
 import datetime
+import numpy as np
 import tensorflow as tf
 import yolo.config as cfg
+import matplotlib.pyplot as plt
 from yolo.yolo_net import YOLONet
 from utils.timer import Timer
 from utils.pascal_voc import pascal_voc
@@ -77,7 +80,7 @@ class Solver(object):
                          self.net.labels: labels}
 
             if step % self.summary_iter == 0:
-                if step % (self.summary_iter * 10) == 0:
+                if step % (self.summary_iter * 1) == 0:
 
                     train_timer.tic()
                     summary_str, loss, _ = self.sess.run(
@@ -129,6 +132,39 @@ def update_config_paths(data_dir, weights_file):
     cfg.WEIGHTS_FILE = os.path.join(cfg.WEIGHTS_DIR, weights_file)
 
 
+def display_gt(detect_gt):
+    img_size = cfg.IMAGE_SIZE
+    class_name = cfg.CLASSES
+    img = cv2.imread(detect_gt['imname'])
+    img_h, img_w, _ = img.shape
+    label_gt = detect_gt['label']      # 7 x 7 x 25, (25 = 1 (objective) + 4 (cx,cy, w,h)
+    h_ratio = img_size / img_h
+    w_ratio = img_size / img_w
+    objectiveness = label_gt[:,:,0]  # 7x7--> Objectiveness
+    boxes = label_gt[:, :, 1:5]      # 7 x 7 x 4, (cx,cy, w, h)
+    classes = label_gt[:, :, 5:25]  # 7 x 7 x 20, (class)
+
+    if detect_gt['flipped']:
+        img = cv2.flip(img, 1)
+
+    object_cells = np.nonzero(np.array(objectiveness == 1, dtype='bool'))
+    object_boxes = boxes[object_cells[0],object_cells[1], :]
+    object_classes = np.argmax(classes[object_cells[0],object_cells[1],:],axis=1)
+
+    for i in range(len(object_boxes)):
+        x1 = int((int(object_boxes[i][0]) - int(object_boxes[i][2] / 2)) / w_ratio)
+        y1 = int((int(object_boxes[i][1]) - int(object_boxes[i][3] / 2)) / h_ratio)
+        x2 = int((int(object_boxes[i][0]) + int(object_boxes[i][2] / 2)) / w_ratio)
+        y2 = int((int(object_boxes[i][1]) + int(object_boxes[i][3] / 2)) / h_ratio)
+        cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        cv2.rectangle(img, (x1, y1 - 20), (x2, y1), (125, 125, 125), -1)
+        lineType = cv2.LINE_AA if cv2.__version__ > '3' else cv2.CV_AA
+        cv2.putText(img, class_name[object_classes[i]],(x1 + 5, y1 - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1, lineType)
+
+    cv2.imshow('Image', img)
+    cv2.waitKey(0)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_dir', default="data", type=str)
@@ -148,6 +184,9 @@ def main():
 
     yolo = YOLONet(True)
     data = pascal_voc('train')
+
+    for i in range(10):
+        display_gt(data.gt_labels[i])
 
     solver = Solver(yolo, data)
 

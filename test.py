@@ -22,10 +22,12 @@ class Detector(object):
         self.threshold = cfg.THRESHOLD              # 0.2
         self.iou_threshold = cfg.IOU_THRESHOLD      # 0.5
         self.boundary1 = self.cell_size * self.cell_size * self.num_class   
-            # S x S x C = 980
+            # S x S x C = 980  ---> 0:boundary1
+            #    = Conditional Class Probablity, Pr(Class_i|Object)
         self.boundary2 = self.boundary1 +\
             self.cell_size * self.cell_size * self.boxes_per_cell
             # S x S x C + S x S x B = 980 + 98 = 1078
+            # ---> boundary1:boundary2 = Confidence Score, Pr(Object)
 
         self.sess = tf.Session()
         self.sess.run(tf.global_variables_initializer())
@@ -39,42 +41,36 @@ class Detector(object):
         img_h, img_w, _ = img.shape     # img_h, img_w, _
         inputs = cv2.resize(img, (self.image_size, self.image_size))
             # (448, 448, 3)
-        inputs = cv2.cvtColor(inputs, cv2.COLOR_BGR2RGB).astype(np.float32)
+        inputs = cv2.cvtColor(inputs, cv2.COLOR_BGR2RGB).astype(np.float32)   # BGR --> RGB
         inputs = (inputs / 255.0) * 2.0 - 1.0       # normalization
-        inputs = np.reshape(inputs, (1, self.image_size, self.image_size, 3))
+        inputs = np.reshape(inputs, (1, self.image_size, self.image_size, 3))  # Training 구조
             # (1, 448, 448, 3)
+        result = self.detect_from_cvmat(inputs)   # Call YOLO net
+            #[('class', cx, cy, w, h, prob), ('class', cx, cy, w, h, prob), ....]
 
-        result = self.detect_from_cvmat(inputs)[0]
-        
-        for i in range(len(result)):
-            result[i][1] *= (img_w / self.image_size)
-            result[i][2] *= (img_h / self.image_size)
-            result[i][3] *= (img_w / self.image_size)
-            result[i][4] *= (img_h / self.image_size)
-
+        for i in range(len(result)):                 # Number of objects
+            result[i][1] *= (img_w / self.image_size)    # Return to the original size
+            result[i][2] *= (img_h / self.image_size)    # Return to the original size
+            result[i][3] *= (img_w / self.image_size)    # Return to the original size
+            result[i][4] *= (img_h / self.image_size)    # Return to the original size  +
         return result
 
-    def detect_from_cvmat(self, inputs):
+
+    def detect_from_cvmat(self, input):     # Call YOLO net
         net_output = self.sess.run(self.net.logits,
-                                   feed_dict={self.net.images: inputs})
-            # _, 1470 = S x S x (B * 5 + C)
+                                   feed_dict={self.net.images: input})
+            # 1, 1470 = S x S x (B * 5 + C)
 
-        results = []
-        for i in range(net_output.shape[0]):
-            results.append(self.interpret_output(net_output[i]))
-
-        return results
+        return self.interpret_output(net_output[0])
 
     def interpret_output(self, output):
-    
+
+        # (S, S, B, C)
         probs = np.zeros((self.cell_size, self.cell_size,
                           self.boxes_per_cell, self.num_class))
-            # (S, S, B, C)
-        
+
         # Conditional Class Probablity, Pr(Class_i|Object)    
-        class_probs = np.reshape(
-            output[0:self.boundary1],
-            (self.cell_size, self.cell_size, self.num_class))
+        class_probs = np.reshape(output[0:self.boundary1],(self.cell_size, self.cell_size, self.num_class))
             # (S, S, C)
         
         # Confidence Score, Pr(Object)
@@ -83,24 +79,43 @@ class Detector(object):
             (self.cell_size, self.cell_size, self.boxes_per_cell))
             # (S, S, B)
         
-        # Bounding Box, (x, y, w, h) in the range [0, 1]    
+        # Bounding Box, (cx, xy, w, h) in the range [0, 1]
         boxes = np.reshape(
             output[self.boundary2:],
             (self.cell_size, self.cell_size, self.boxes_per_cell, 4))
             # (S, S, B, 4)
         
-        # interpret network output (x, y, w, h) using offset
+        # interpret network output (cx, cy, w, h) using offset and compute the bounding box
         offset = np.transpose(np.reshape(np.array(
             [np.arange(self.cell_size)] * self.cell_size * self.boxes_per_cell),
             (self.boxes_per_cell, self.cell_size, self.cell_size)), (1, 2, 0))
+        # (S, S, B)
+        # offset[:, :, 0]=  offset[:,:,1]
+        #                 = array([[0, 1, 2, 3, 4, 5, 6],
+        #                         [0, 1, 2, 3, 4, 5, 6],
+        #                         [0, 1, 2, 3, 4, 5, 6],
+        #                         [0, 1, 2, 3, 4, 5, 6],
+        #                         [0, 1, 2, 3, 4, 5, 6],
+        #                         [0, 1, 2, 3, 4, 5, 6],
+        #                         [0, 1, 2, 3, 4, 5, 6]])
+
         offset_tran = np.transpose(offset, (1, 0, 2))
-            # (S, S, B)
-            
-        boxes[:, :, :, 0] += offset
-        boxes[:, :, :, 1] += offset_tran
-        boxes[:, :, :, :2] /= self.cell_size
-        boxes[:, :, :, 2:] = np.square(boxes[:, :, :, 2:])
-        boxes *= self.image_size
+        # (S, S, B)
+        # offset_tran[:, :, =]=offset_tran[:, :, 1]
+        #                     = array([[0, 0, 0, 0, 0, 0, 0],
+        #                             [1, 1, 1, 1, 1, 1, 1],
+        #                             [2, 2, 2, 2, 2, 2, 2],
+        #                             [3, 3, 3, 3, 3, 3, 3],
+        #                             [4, 4, 4, 4, 4, 4, 4],
+        #                             [5, 5, 5, 5, 5, 5, 5],
+        #                             [6, 6, 6, 6, 6, 6, 6]])
+
+
+        boxes[:, :, :, 0] += offset                 # cx
+        boxes[:, :, :, 1] += offset_tran            # cy
+        boxes[:, :, :, :2] /= self.cell_size        # cx and cy into [0,1]
+        boxes[:, :, :, 2:] = np.square(boxes[:, :, :, 2:]) # root(W) and root(H) into W and H
+        boxes *= self.image_size                    #resize to the original image size
 
         # Class Specific Confidence Score
         for i in range(self.boxes_per_cell):
@@ -111,21 +126,22 @@ class Detector(object):
         # filtering via class specific confidence score
         filter_mat_probs = np.array(probs >= self.threshold, dtype='bool')
         filter_mat_boxes = np.nonzero(filter_mat_probs)
+        # returns the cell, box and class id for valid object
 
         boxes_filtered = boxes[filter_mat_boxes[0],
-                               filter_mat_boxes[1], filter_mat_boxes[2]]
+                               filter_mat_boxes[1], filter_mat_boxes[2],:]
+        # returns the bboxes (cx,cy,w,h) for valid object
+
         probs_filtered = probs[filter_mat_probs]
+        # returns the class conditional prob. for valid object
+
         classes_num_filtered = np.argmax(
             probs, axis=3)[
             filter_mat_boxes[0], filter_mat_boxes[1], filter_mat_boxes[2]]
-        
-        # Since filter_mat_probs has boolean values, the unexpected results might be occurred. 
-        # classes_num_filtered = np.argmax(
-        #    filter_mat_probs, axis=3)[
-        #    filter_mat_boxes[0], filter_mat_boxes[1], filter_mat_boxes[2]]
+        # returns the class num for valid object
         
         # non-maximal suppression
-        # step-1: performing descending sort along class specific confidence score 
+        # step-1: sorting class specific confidence score in a descending order
         argsort = np.argsort(probs_filtered)[::-1]
         boxes_filtered = boxes_filtered[argsort]
         probs_filtered = probs_filtered[argsort]
@@ -182,42 +198,16 @@ class Detector(object):
                 (0, 0, 0), 1, lineType)
             
     def image_detector(self, imname, wait=0):
-        detect_timer = Timer()
         image = cv2.imread(imname)
-
-        detect_timer.tic()
         result = self.detect(image)
-        detect_timer.toc()
-        print('Average detecting time: {:.3f}s'.format(
-            detect_timer.average_time))
-
         self.display_result(image, result)
         cv2.imshow('Image', image)
         cv2.waitKey(wait)
-
-    def camera_detector(self, cap, wait=10):
-        detect_timer = Timer()
-        ret, _ = cap.read()
-
-        while ret:
-            ret, frame = cap.read()
-            detect_timer.tic()
-            result = self.detect(frame)
-            detect_timer.toc()
-            print('Average detecting time: {:.3f}s'.format(
-                detect_timer.average_time))
-
-            self.display_result(frame, result)
-            cv2.imshow('Camera', frame)
-            cv2.waitKey(wait)
 
 
 def main():
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_dir', default="data", type=str)
-    parser.add_argument('--weight_dir', default='weights', type=str)
-    parser.add_argument('--weights', default="YOLO_small.ckpt", type=str)
     parser.add_argument('--gpu', default='', type=str)
     args = parser.parse_args()
 
@@ -226,18 +216,20 @@ def main():
         os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID" 
         os.environ['CUDA_VISIBLE_DEVICES'] = cfg.GPU
 
+    weight_file = "./data/weights/YOLO_small.ckpt"
+    
     yolo = YOLONet(False)
-    weight_file = os.path.join(args.data_dir, args.weight_dir, args.weights)
     detector = Detector(yolo, weight_file)
 
     # detect from image file
-    imname = 'person.jpg'
+    imname = './images/cat.jpg'
+    #imname = './images/person.jpg'
+    #imname = './images/000020.jpg'
+    #imname = './images/000021.jpg'
+    #imname = './images/000023.jpg'
+    
     detector.image_detector(imname)
     
-    # detect from camera
-    #cap = cv2.VideoCapture(-1)
-    #detector.camera_detector(cap)
-
 
 if __name__ == '__main__':
     main()
